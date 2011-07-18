@@ -24,13 +24,13 @@
    #define __AVR_AT90USBxxx__
 #endif
 
-#include "lib_mcu\compiler.h" //!< Compiler definitions
+#include "lib_mcu/compiler.h" //!< Compiler definitions
 
 
 #ifdef AVRGCC
    #include <avr/io.h>
 #else
-   #include "lib_mcu\mcu.h" //!< Register declaration
+   #include "lib_mcu/mcu.h" //!< Register declaration
 #endif
 #include "conf/conf_scheduler.h" //!< Scheduler tasks declaration
 
@@ -47,9 +47,9 @@
    //! @warning for #define USBKEY_HAS_321_DF, only first prototypes versions have AT45DB321C memories
    //! should be undefined for std series
    #define USBKEY_HAS_321_DF
-   #include "lib_board\usb_key\usb_key.h"
+   #include "lib_board/usb_key/usb_key.h"
 #elif (TARGET_BOARD==STK525)
-   #include "lib_board\stk_525\stk_525.h"
+   #include "lib_board/stk_525/stk_525.h"
 #else
    #error TARGET_BOARD must be defined somewhere
 #endif

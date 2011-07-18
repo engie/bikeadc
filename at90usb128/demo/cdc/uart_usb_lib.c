@@ -13,7 +13,7 @@
 /*_____ I N C L U D E S ____________________________________________________*/
 
 #include "config.h"
-#include "lib_mcu\usb\usb_drv.h"
+#include "lib_mcu/usb/usb_drv.h"
 #include "usb_descriptors.h"
 
 #include "uart_usb_lib.h"

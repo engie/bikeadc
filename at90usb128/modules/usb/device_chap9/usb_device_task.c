@@ -24,12 +24,12 @@
 #include "config.h"
 #include "conf_usb.h"
 #include "usb_device_task.h"
-#include "modules\usb\usb_task.h"
+#include "modules/usb/usb_task.h"
 
-#include "lib_mcu\usb\usb_drv.h"
+#include "lib_mcu/usb/usb_drv.h"
 #include "usb_descriptors.h"
-#include "modules\usb\device_chap9\usb_standard_request.h"
-#include "lib_mcu\pll\pll_drv.h"
+#include "modules/usb/device_chap9/usb_standard_request.h"
+#include "lib_mcu/pll/pll_drv.h"
 
 
 
