@@ -27,6 +27,7 @@
 #include "uart_usb_lib.h"
 #include <stdio.h>
 
+//#include "lib_mcu/mcu.h"
 
 
 //_____ M A C R O S ________________________________________________________
@@ -47,6 +48,62 @@ extern U8    rx_counter;
 extern U8    tx_counter;
 S_line_coding line_coding;
 
+typedef unsigned short uint16;
+static uint16 voltage;
+static uint16 current;
+
+void selectADCChannel( int channel )
+{
+    ADMUX = (1u << REFS0 )
+        //| (1u << REFS1 ) //2.56V reference
+        | channel;
+}
+
+static int channel = 0;
+static int cpt_adc = 0;
+void adc_init()
+{
+    selectADCChannel( channel );
+    ADCSRB = 0; //Free running mode. Not used.
+    DIDR0 = 0xFF; //Disable digital inputs on port F 
+    ADCSRA = ( 1u << ADEN ) //ADC Enabled
+        | ( 1u << ADSC ) //Start conversion
+        | ( 1u << ADPS2 )
+        | ( 1u << ADPS1 )
+        | ( 1u << ADPS0 ); // divide clock by 128 
+}
+
+int adc_read()
+{
+    if( ADCSRA & (1u << ADIF) )
+    {
+        bool success = 0;
+        //Got a reading. HAVE TO READ LOWER FIRST ARGAGRG
+        uint16 reading = ADCL;
+        reading |= ((uint16) ADCH) << 8;
+
+        if( channel == 0 )
+        {
+            voltage = reading;
+            channel = 1;
+        }
+        else
+        {
+            current = reading;
+            channel = 0;
+            success = 1;
+        }
+        selectADCChannel( channel );
+
+        //Clear the flag
+        ADCSRA |= (1u << ADIF);
+        //Start the next one
+        ADCSRA |= (1u << ADSC);
+        return success;
+    }
+
+    return 0;
+}
 
 //! @brief This function initializes the hardware ressources required for CDC demo.
 //!
@@ -58,18 +115,16 @@ S_line_coding line_coding;
 //!/
 void cdc_task_init(void)
 {
-   uart_init();
-   Leds_init();
-   Joy_init();
-   Hwb_button_init();
-   Usb_enable_sof_interrupt();
+    DDRF = 0; //Port F is an input port
+    PORTF = 0; //Disable pullups
+    uart_init();
+    Leds_init();
+    Hwb_button_init();
+    Usb_enable_sof_interrupt();
 #ifdef AVRGCC
- 	fdevopen(uart_usb_putchar,uart_usb_getchar); //for printf redirection 
+    fdevopen(uart_usb_putchar,uart_usb_getchar); //for printf redirection 
 #endif
 }
-
-
-
 
 
 //! @brief Entry point of the uart cdc management
@@ -79,55 +134,39 @@ void cdc_task_init(void)
 //! @param none
 //!
 //! @return none
+static int waiting_to_start = 1;
 void cdc_task(void)
 {
-   if(Is_device_enumerated()) //Enumeration processs OK ?
-   {
-      if(cpt_sof>=NB_MS_BEFORE_FLUSH && tx_counter!=0 )  //Flush buffer in Timeout
-      {
-   	   cpt_sof=0;
-		   uart_usb_flush();
-      }
-      
-	   if (uart_test_hit())    //Something on USART ?
-  	   {
-  		   uart_usb_putchar(uart_getchar());   // Loop back, USART to USB
-         Led0_toggle();
-  	   }
-   
-      if (Uart_tx_ready())    //USART free ?
-      {
-         if (uart_usb_test_hit())   // Something received from the USB ?
-	      {
-	 	      while (rx_counter)
-		      {
-			      uart_putchar(uart_usb_getchar());   // loop back USB to USART
-               Led3_toggle();
-		      }
-	      }
-      }
+    if(Is_device_enumerated()) //Enumeration processs OK ?
+    {
+        if(cpt_sof>=NB_MS_BEFORE_FLUSH && tx_counter!=0 )  //Flush buffer in Timeout
+        {
+            cpt_sof=0;
+            uart_usb_flush();
+        }
 
-      if ( cpt_sof>=REPEAT_KEY_PRESSED)   //Debounce joystick events
-      {
-         if (Is_joy_select())
-         printf ("Select Pressed !\r\n");
+        if (uart_test_hit())    //Something on USART ?
+        {
+            uart_usb_putchar(uart_getchar());   // Loop back, USART to USB
+        }
 
-         if (Is_joy_right())
-         printf ("Right Pressed !\r\n");
-   
-         if (Is_joy_left())
-         printf ("Left Pressed !\r\n");
+        if ( waiting_to_start && uart_usb_test_hit())   // Something received from the USB ?
+        {
+            waiting_to_start = 0;
+            adc_init();
+        }
 
-         if (Is_joy_down())
-         printf ("Down Pressed !\r\n");
-
-         if (Is_joy_up())
-         printf ("Up Pressed !\r\n");
-
-         if(Is_hwb())
-         printf("Hello from AT90USBXXX !\r\n");
-      }
-   }
+        if( cpt_adc == 1 )
+        {
+            if( adc_read() )
+            {
+                uint16 checksum = voltage ^ current;
+                printf("%03x,%03x,%03x\r\n", voltage, current, checksum);
+                Led0_toggle();
+            }
+            cpt_adc = 0;
+        }
+    }
 }
 
 
@@ -145,5 +184,6 @@ void cdc_task(void)
 //! @return none
 void sof_action()
 {
-   cpt_sof++;
+    cpt_sof++;
+    cpt_adc = 1;
 }
