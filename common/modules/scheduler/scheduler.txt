@@ -1,0 +1,99 @@
+Simple Scheduler
+
+#CR Copyright (c) 2003 Atmel
+
+OVERVIEW
+--------
+This module is a simple scheduler.
+
+CONFIGURATION
+-------------
+<PRE>
+In config.h:
+
+1/ SCHEDULER_TYPE (required)
+SCHEDULER_FREE: free running (max perfs, none constrainst)
+SCHEDULER_TIMED: a semaphore is used to activate a new schedule (for instance all the tasks are executed each ms)
+SCHEDULER_TASK: a semaphore is used between each task (for instance each task is executed each ms)
+SCHEDULER_CUSTOM: custom, it is possible to define another scheduler type
+
+2/ Scheduler_task_x_init (optional, except Scheduler_task_1_init)
+x from 1 to 11, defines the init functions (init of task or general purpose init)
+
+3/ Scheduler_task_x (optional, except Scheduler_task_1)
+x from 1 to 11, defines the task functions
+
+4/ Scheduler_time_init (optional)
+defines the function that will be called to initialize time events: soft timers, tempo...
+
+5/ SCHEDULER_ENABLE_IT (optional)
+allow to enable interrupts after all initializations
+
+6/ '#define scheduler main' (optional)
+if the main is only a call to the scheduler
+
+7/ TOKEN_MODE (optional)
+To activate a token variable to avoid that tasks executes at same time. 
+A unique token ID must be defined for each task that cannot been executed in parallel.
+(Example : #define TASK_TOKEN_ID TASK_ID)
+
+EXAMPLE
+-------
+|
+|// File: config.h
+|#define Scheduler_time_init     init_soft_timers
+|
+|#define Scheduler_task_1_init   twi_lib_init
+|#define Scheduler_task_2_init   init_leds_task
+|#define Scheduler_task_3_init   stdo_init
+|#define Scheduler_task_4_init   init_main_task
+|#define Scheduler_task_5_init   stdi_init
+|
+|#define Scheduler_task_1        leds_task
+|#define Scheduler_task_3        main_task
+|#define Scheduler_task_4        stdi_update_kbhit
+|
+|#define SCHEDULER_TYPE          SCHEDULER_FREE
+|
+
+// File: scheduler.c / scheduler.h (after precompiler)
+void scheduler_init (void)
+ {
+  init_soft_timers();  
+  twi_lib_init();  
+  init_leds_task();  
+  stdo_init();  
+  init_main_task();  
+  stdi_init();  
+  ;
+ }
+ 
+
+void scheduler_tasks (void)
+ {
+ scheduler_empty_fct();  
+ for(;;)
+   {
+   leds_task();
+   ;
+   main_task();
+   ;
+   stdi_update_kbhit();
+   ;
+   ;
+   }
+ }
+ 
+ 
+void scheduler (void)
+ {
+ scheduler_init();
+ scheduler_tasks();
+ }
+ 
+
+void scheduler_empty_fct (void)
+ {
+ }
+ 
+</PRE>
