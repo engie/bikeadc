@@ -15,19 +15,22 @@ OFFSET = math.radians( 138 )
 SCALE = math.radians( 360 - 96 )
 angle = 0
 win = None
-svg = None
+img = None
 reader = None
+WIDTH=0
+HEIGHT=0
 
 def delete_cb(win, event):
     gtk.main_quit()
 
 def expose_cairo(win, event):
     cr = win.window.cairo_create()
-    svg.render_cairo(cr)
+    cr.set_source_surface( img, 0, 0 )
+    cr.paint()
 
     cr.set_source_rgb( 255, 255, 255 )
     cr.set_line_width( 5 )
-    centre_x, centre_y = svg.props.width / 2, svg.props.height / 2
+    centre_x, centre_y = WIDTH / 2, HEIGHT / 2
     cr.move_to( centre_x, centre_y )
     
     LENGTH = 80
@@ -47,7 +50,7 @@ def timeout():
     return True
 
 def main():
-    global win, svg
+    global win, img, WIDTH, HEIGHT
     win = gtk.Window ()
     win.connect("delete-event", delete_cb)
 
@@ -57,7 +60,12 @@ def main():
     else:
         raise SystemExit("need svg file")
 
-    win.resize( svg.props.width, svg.props.height )
+    WIDTH, HEIGHT = svg.props.width, svg.props.height
+    win.resize( WIDTH, HEIGHT )
+    img = cairo.ImageSurface( cairo.FORMAT_ARGB32, svg.props.width, svg.props.height )
+    cr = cairo.Context( img )
+    svg.render_cairo(cr)
+
     win.connect("expose-event", expose_cairo)
     
     win.show_all()
