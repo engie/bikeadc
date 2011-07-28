@@ -25,6 +25,7 @@
 #include "usb_specific_request.h"
 #include "lib_mcu/uart/uart_lib.h"
 #include "uart_usb_lib.h"
+#include <avr/interrupt.h>
 #include <stdio.h>
 
 //#include "lib_mcu/mcu.h"
@@ -42,6 +43,18 @@
 
 //_____ D E C L A R A T I O N S ____________________________________________
 
+void timer_init()
+{
+    //8MHz external clock
+    //Set timer0 to 8MHz/64 = 125KHz
+    //Counter to fire at  = 2KHz (ish)
+    TCCR0A = (1u << WGM01); //CTC Mode
+    TCCR0B = (1u << CS01)
+           | (1u << CS00); //Divide by 64
+    OCR0A = 63;
+    OCR0B = 0; //Reset when = 63
+    TIMSK0 = (1u << OCIE0A); //This triggers the ADC
+}
 
 volatile U8 cpt_sof;
 extern U8    rx_counter;
@@ -49,8 +62,51 @@ extern U8    tx_counter;
 S_line_coding line_coding;
 
 typedef unsigned short uint16;
-static uint16 voltage;
-static uint16 current;
+typedef struct { uint16 voltage; uint16 current; } READING;
+typedef uint16 CB_t;
+#define CB_SIZE 1024
+static READING cb_data[CB_SIZE];
+volatile static CB_t cb_head = 1;
+volatile static CB_t cb_tail = 0;
+
+CB_t next_index( CB_t i )
+{
+    i += 1;
+    if( i == CB_SIZE )
+    {
+        i = 0;
+    }
+
+    return i;
+}
+
+void cb_push( READING* r )
+{
+    CB_t next_head = next_index(cb_head);
+
+    if( next_head == cb_tail )
+    {
+        Led0_toggle();
+        return;
+    }
+
+    cb_data[cb_head] = *r;
+    cb_head = next_head;
+}
+
+int cb_pop( READING* r )
+{
+    CB_t next_tail = next_index( cb_tail );
+
+    if( next_tail == cb_head )
+    {
+        return 0;
+    }
+
+    *r = cb_data[cb_tail];
+    cb_tail = next_tail;
+    return 1;
+}
 
 void selectADCChannel( int channel )
 {
@@ -59,50 +115,49 @@ void selectADCChannel( int channel )
         | channel;
 }
 
-static int channel = 0;
-static int cpt_adc = 0;
+static int channel = 1;
 void adc_init()
 {
+    //Need 25 cycles per 2kHZ tick
     selectADCChannel( channel );
-    ADCSRB = 0; //Free running mode. Not used.
+    ADCSRB = ( 1u << ADTS0 )
+           | ( 1u << ADTS1 ); //Trigger = Timer/counter0 Compare match
     DIDR0 = 0xFF; //Disable digital inputs on port F 
     ADCSRA = ( 1u << ADEN ) //ADC Enabled
-        | ( 1u << ADSC ) //Start conversion
-        | ( 1u << ADPS2 )
-        | ( 1u << ADPS1 )
-        | ( 1u << ADPS0 ); // divide clock by 128 
+           | ( 1u << ADATE ) //Start conversion on trigger
+           | ( 1u << ADIE ) //Enable interrupt
+           | ( 1u << ADPS2 )
+           | ( 1u << ADPS1 ); //Divide by 64 to give 125KHz clock
 }
 
-int adc_read()
+ISR(TIMER0_COMPA_vect)
 {
-    if( ADCSRA & (1u << ADIF) )
+}
+
+static READING cur_reading;
+static uint16 count = 0;
+ISR(ADC_vect)
+{
+    //Got a reading. HAVE TO READ LOWER FIRST ARGAGRG
+    uint16 reading = ADCL;
+    reading |= ((uint16) ADCH) << 8;
+
+    if( channel == 1 )
     {
-        bool success = 0;
-        //Got a reading. HAVE TO READ LOWER FIRST ARGAGRG
-        uint16 reading = ADCL;
-        reading |= ((uint16) ADCH) << 8;
-
-        if( channel == 0 )
-        {
-            voltage = reading;
-            channel = 1;
-        }
-        else
-        {
-            current = reading;
-            channel = 0;
-            success = 1;
-        }
-        selectADCChannel( channel );
-
-        //Clear the flag
-        ADCSRA |= (1u << ADIF);
-        //Start the next one
-        ADCSRA |= (1u << ADSC);
-        return success;
+        cur_reading.voltage = reading;
+        channel = 7;
     }
+    else
+    {
+        cur_reading.current = reading;
+        channel = 1;
+        cb_push( &cur_reading );
+        count++;
+    }
+    selectADCChannel( channel );
 
-    return 0;
+    //Clear the flag
+    ADCSRA |= (1u << ADIF);
 }
 
 //! @brief This function initializes the hardware ressources required for CDC demo.
@@ -145,26 +200,27 @@ void cdc_task(void)
             uart_usb_flush();
         }
 
-        if (uart_test_hit())    //Something on USART ?
-        {
-            uart_usb_putchar(uart_getchar());   // Loop back, USART to USB
-        }
-
         if ( waiting_to_start && uart_usb_test_hit())   // Something received from the USB ?
         {
             waiting_to_start = 0;
+            timer_init();
             adc_init();
         }
 
-        if( cpt_adc == 1 )
+        if( !waiting_to_start )
         {
-            if( adc_read() )
+            READING r;
+            if( cb_pop( &r ) )
             {
-                uint16 checksum = voltage ^ current;
-                printf("%03x,%03x,%03x\r\n", voltage, current, checksum);
-                Led0_toggle();
+                uart_usb_putchar( (r.voltage >> 8) & 0xFF );
+                uart_usb_putchar( r.voltage & 0xFF );
+                uart_usb_putchar( (r.current >> 8) & 0xFF  );
+                uart_usb_putchar( r.current & 0xFF );
+
+                uint16 checksum = r.voltage ^ r.current;
+                uart_usb_putchar( (checksum >> 8) & 0xFF  );
+                uart_usb_putchar( checksum & 0xFF );
             }
-            cpt_adc = 0;
         }
     }
 }
@@ -185,5 +241,4 @@ void cdc_task(void)
 void sof_action()
 {
     cpt_sof++;
-    cpt_adc = 1;
 }
