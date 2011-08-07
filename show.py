@@ -56,13 +56,13 @@ class Reader(threading.Thread):
                         continue
 
                     if voltage > 10:
-                        voltage = float(voltage) / 1024
+                        voltage = (float(voltage) / 1024) * 50
                     else:
                         voltage = 0.0
                     self.voltages.update( voltage )
 
                     if current > 50:
-                        current = float(current) / 1024
+                        current = (float(current) / 1024) * 50
                     else:
                         current = 0.0
                     self.currents.update( current )
